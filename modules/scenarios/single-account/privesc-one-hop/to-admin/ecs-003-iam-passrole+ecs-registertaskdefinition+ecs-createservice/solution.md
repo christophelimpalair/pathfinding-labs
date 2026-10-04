@@ -97,7 +97,9 @@ aws ecs create-service \
 
 ### Step 4: Wait for the Task to Complete
 
-Monitor the service until a task is running, then wait for it to reach `STOPPED` status (meaning the container command finished):
+The container runs a single command and exits, so the task stops within a few seconds. The service's `runningCount` drops back to `0` once the command completes. This is expected and does not mean the attack failed.
+
+Check the service:
 
 ```bash
 aws ecs describe-services \
@@ -107,13 +109,14 @@ aws ecs describe-services \
   --query 'services[0].{status:status,running:runningCount,desired:desiredCount}'
 ```
 
-Once a task ARN appears, poll until it stops:
+Because the task finishes quickly, query for the stopped task to get its ARN, then confirm it exited cleanly (`exitCode` of `0`):
 
 ```bash
 TASK_ARN=$(aws ecs list-tasks \
   --region $AWS_REGION \
   --cluster pl-prod-ecs-003-cluster \
   --service-name pl-prod-ecs-003-attack-service \
+  --desired-status STOPPED \
   --query 'taskArns[0]' --output text)
 
 aws ecs describe-tasks \

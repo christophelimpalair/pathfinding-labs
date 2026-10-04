@@ -76,6 +76,7 @@ resource "aws_iam_user_policy" "starting_user_required" {
         Action = [
           "ecs:DescribeServices",
           "ecs:DescribeTasks",
+          "ecs:ListTasks",
           "ecs:DeleteService",
           "ecs:UpdateService",
           "ecs:DeregisterTaskDefinition",
