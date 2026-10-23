@@ -77,6 +77,18 @@ cd /tmp && zip lambda_function.zip lambda_function.py && cd -
 
 This is the `iam:PassRole` step. You are assigning the admin role as the Lambda execution role, meaning any code that runs inside this function will have the role's permissions:
 
+Hosted environments run Lambda inside an isolated VPC. Discover the lab's subnet and security group, then include them when you create the function:
+
+```bash
+SUBNET_ID=$(aws ec2 describe-subnets \
+    --filters "Name=tag:Name,Values=pl-prod-lambda-006-to-admin-subnet" \
+    --query 'Subnets[0].SubnetId' --output text)
+
+SG_ID=$(aws ec2 describe-security-groups \
+    --filters "Name=tag:Name,Values=pl-prod-lambda-006-to-admin-function-sg" \
+    --query 'SecurityGroups[0].GroupId' --output text)
+```
+
 ```bash
 ACCOUNT_ID=$(aws sts get-caller-identity --query 'Account' --output text)
 ADMIN_ROLE_ARN="arn:aws:iam::${ACCOUNT_ID}:role/pl-prod-lambda-006-to-admin-target-role"
@@ -87,7 +99,8 @@ aws lambda create-function \
   --role "$ADMIN_ROLE_ARN" \
   --handler "lambda_function.lambda_handler" \
   --zip-file "fileb:///tmp/lambda_function.zip" \
-  --timeout 30
+  --timeout 30 \
+  --vpc-config SubnetIds=${SUBNET_ID},SecurityGroupIds=${SG_ID}
 ```
 
 If this succeeds, you have a function deployed that runs as an admin role. But you still can't invoke it.

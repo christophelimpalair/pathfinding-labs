@@ -72,6 +72,18 @@ cd /tmp && zip lambda_function.zip lambda_function.py && cd -
 
 This is the `iam:PassRole` step. You are delegating the `pl-prod-lambda-006-to-bucket-target-role` to the new Lambda function. Any code running inside that function will execute with that role's S3 permissions:
 
+Hosted environments run Lambda inside an isolated VPC. Discover the lab's subnet and security group, then include them when you create the function:
+
+```bash
+SUBNET_ID=$(aws ec2 describe-subnets \
+    --filters "Name=tag:Name,Values=pl-prod-lambda-006-to-bucket-subnet" \
+    --query 'Subnets[0].SubnetId' --output text)
+
+SG_ID=$(aws ec2 describe-security-groups \
+    --filters "Name=tag:Name,Values=pl-prod-lambda-006-to-bucket-function-sg" \
+    --query 'SecurityGroups[0].GroupId' --output text)
+```
+
 ```bash
 ACCOUNT_ID=$(aws sts get-caller-identity --query 'Account' --output text)
 TARGET_ROLE_ARN="arn:aws:iam::${ACCOUNT_ID}:role/pl-prod-lambda-006-to-bucket-target-role"
@@ -82,7 +94,8 @@ aws lambda create-function \
   --role "$TARGET_ROLE_ARN" \
   --handler "lambda_function.lambda_handler" \
   --zip-file "fileb:///tmp/lambda_function.zip" \
-  --timeout 30
+  --timeout 30 \
+  --vpc-config SubnetIds=${SUBNET_ID},SecurityGroupIds=${SG_ID}
 ```
 
 The function now exists in your account with the target role attached. But you cannot invoke it yet.
