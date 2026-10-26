@@ -151,7 +151,9 @@ aws dynamodb put-item \
   --item '{"id": {"S": "trigger-1"}}'
 ```
 
-The Lambda executes asynchronously. Wait 10-15 seconds for execution and IAM policy propagation. If the first write doesn't trigger it (event source mappings can take a few more seconds to fully initialize after showing `Enabled`), insert another record and wait again.
+The Lambda executes asynchronously.
+
+If the policy has not attached about 30 seconds after the first write, write another record with a new key. A record written in the same moments the mapping initializes can be skipped by its LATEST position - a new key is always processed: Wait 10-15 seconds for execution and IAM policy propagation. If the first write doesn't trigger it (event source mappings can take a few more seconds to fully initialize after showing `Enabled`), insert another record and wait again.
 
 ## Verification
 
