@@ -133,7 +133,7 @@ aws lambda get-policy --function-name "pl-lambda-006-malicious-function"
 Lambda functions need a moment to move from `Pending` to `Active` state before they can be invoked:
 
 ```bash
-sleep 15
+aws lambda wait function-active --function-name pl-lambda-006-malicious-function
 ```
 
 ### Step 5: Invoke the function

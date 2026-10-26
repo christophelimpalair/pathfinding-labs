@@ -113,6 +113,12 @@ aws lambda create-function \
 
 The Lambda function now exists with the target role's S3 read and DynamoDB write permissions — but it has not executed yet.
 
+The hosted function attaches to an isolated VPC and can take a few minutes to reach the Active state. Wait for it before wiring the trigger, or the trigger record is skipped:
+
+```bash
+aws lambda wait function-active --function-name pl-lambda-002-to-bucket-escalation-fn
+```
+
 ### Step 3: Create the event source mapping
 
 Connect your Lambda function to the DynamoDB trigger table's stream. This is what replaces `lambda:InvokeFunction`: instead of calling the function directly, you wire it to a stream so it fires automatically on data changes:

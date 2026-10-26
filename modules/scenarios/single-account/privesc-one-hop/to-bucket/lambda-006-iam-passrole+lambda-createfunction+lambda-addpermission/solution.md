@@ -127,7 +127,7 @@ You should see a resource-based policy statement granting your user `lambda:Invo
 Lambda functions transition through a `Pending` state before they are ready to accept invocations. Give it a moment:
 
 ```bash
-sleep 15
+aws lambda wait function-active --function-name pl-lambda-006-to-bucket-escalation
 ```
 
 ### Step 5: Invoke the function

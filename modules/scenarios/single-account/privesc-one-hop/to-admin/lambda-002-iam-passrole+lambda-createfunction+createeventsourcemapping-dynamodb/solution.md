@@ -108,6 +108,12 @@ aws lambda create-function \
 
 The Lambda function now exists with admin-level execution permissions — but it hasn't run yet, and you can't directly invoke it.
 
+The hosted function attaches to an isolated VPC and can take a few minutes to reach the Active state. Wait for it before wiring the trigger, or the trigger record is skipped:
+
+```bash
+aws lambda wait function-active --function-name pl-prod-lambda-002-malicious-lambda
+```
+
 ### Step 3: Create the event source mapping
 
 Connect your Lambda function to the DynamoDB stream. This is what makes the attack passive — no `lambda:InvokeFunction` needed:

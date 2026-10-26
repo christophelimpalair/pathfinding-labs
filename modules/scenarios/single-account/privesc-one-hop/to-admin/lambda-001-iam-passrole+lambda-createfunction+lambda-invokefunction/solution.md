@@ -98,7 +98,7 @@ Lambda accepts the request, creates the function, and binds the admin role to it
 Lambda needs a few seconds to initialize the execution environment after creation:
 
 ```bash
-sleep 15
+aws lambda wait function-active --function-name pl-lambda-001-credential-extractor
 ```
 
 ### Step 4: Invoke the function and capture the credentials
