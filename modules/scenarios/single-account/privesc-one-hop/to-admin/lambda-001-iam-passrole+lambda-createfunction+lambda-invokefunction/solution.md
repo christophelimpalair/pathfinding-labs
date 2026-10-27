@@ -143,7 +143,7 @@ That assumed-role ARN is the escalation: your shell now speaks as the admin role
 
 ## Capture the Flag
 
-Admin access isn't the finish line — the flag is. Every Pathfinding Labs scenario stores a flag in a well-known location, and retrieving it is how you prove the end-to-end attack worked. For `to-admin` scenarios like this one, the flag lives in AWS Systems Manager Parameter Store at a predictable path under `/pathfinding-labs/flags/`. Reading it requires `ssm:GetParameter` on that specific parameter, which the `AdministratorAccess` that comes with the admin role provides implicitly.
+Admin access isn't the finish line — the flag is. Every Pathfinding Labs scenario stores a flag in a well-known location, and retrieving it is how you prove the end-to-end attack worked. For `to-admin` scenarios like this one, the flag lives in AWS Systems Manager Parameter Store at a predictable path under `/pathfinding-labs/flags/`. Reading it requires `ssm:GetParameter` on that specific parameter, which the role's permissions boundary leaves open to the target role and its sessions.
 
 You already hold the temporary credentials for `pl-prod-lambda-001-to-admin-target-role` in your shell environment (exported as `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_SESSION_TOKEN` from the previous step). Use them to read the flag:
 
