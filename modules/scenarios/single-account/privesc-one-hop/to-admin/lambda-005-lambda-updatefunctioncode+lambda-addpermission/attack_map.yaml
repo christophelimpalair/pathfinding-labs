@@ -87,7 +87,7 @@ attackMap:
       hints: []
       commands:
         - description: "Grant self-invocation permission via resource-based policy"
-          command: "aws lambda add-permission --function-name pl-prod-lambda-005-to-admin-target-lambda --statement-id allow-self-invoke --action lambda:InvokeFunction --principal arn:aws:iam::{account_id}:user/pl-prod-lambda-005-to-admin-starting-user"
+          command: "ACCOUNT_ID=$(aws sts get-caller-identity --query 'Account' --output text) && aws lambda add-permission --function-name pl-prod-lambda-005-to-admin-target-lambda --statement-id allow-self-invoke --action lambda:InvokeFunction --principal arn:aws:iam::${ACCOUNT_ID}:user/pl-prod-lambda-005-to-admin-starting-user"
 
     - from: target-lambda
       to: lambda-exec-role

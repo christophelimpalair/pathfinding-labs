@@ -79,11 +79,14 @@ The function now contains your malicious code. But you still can't invoke it if 
 ### Step 3: Grant yourself invocation rights
 
 ```bash
+ACCOUNT_ID=$(aws sts get-caller-identity --query 'Account' --output text)
+USER_ARN="arn:aws:iam::${ACCOUNT_ID}:user/pl-prod-lambda-005-to-admin-starting-user"
+
 aws lambda add-permission \
   --function-name pl-prod-lambda-005-to-admin-target-lambda \
   --statement-id allow-self-invoke \
   --action lambda:InvokeFunction \
-  --principal arn:aws:iam::{account_id}:user/pl-prod-lambda-005-to-admin-starting-user
+  --principal "$USER_ARN"
 ```
 
 This adds a resource-based policy statement that explicitly allows your user to invoke the function. Lambda evaluates both identity-based policies and resource-based policies -- adding this statement satisfies the resource-policy check even if the identity policy already permits it.

