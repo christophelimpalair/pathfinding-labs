@@ -156,7 +156,7 @@ aws dynamodb put-item \
   --item '{"id": {"S": "trigger-1"}}'
 ```
 
-The Lambda executes asynchronously. Wait 10-15 seconds, then check for the attachment with the `list-attached-user-policies` call in the Verification step below. The mapping's poller can take up to about two minutes to pick the record up after the mapping shows `Enabled`, so give it that long before you worry. If the policy still isn't attached after that, insert another record with a new key and check again.
+The Lambda executes asynchronously. Wait 10-15 seconds, then check for the attachment with the `list-attached-user-policies` call in the Verification step below. That call is itself denied until the attachment lands -- your starting identity carries no `iam:ListAttachedUserPolicies` grant, and the `AdministratorAccess` attachment supplies it, so an AccessDenied answer simply means the function has not fired yet. The mapping's poller can take up to about two minutes to pick the record up after the mapping shows `Enabled`, so give it that long before you worry. If the policy still isn't attached after that, insert another record with a new key and check again.
 
 ## Verification
 
@@ -175,12 +175,14 @@ aws iam list-attached-user-policies \
 # }
 ```
 
-Now confirm you have full admin access:
+Now confirm the escalation worked, and see the execution that produced it:
 
 ```bash
-aws iam list-users --max-items 3 --output table
-# Successfully lists IAM users -- admin access confirmed
+aws logs tail /aws/lambda/pl-prod-lambda-002-malicious-lambda
+# START / END / REPORT lines -- the AttachUserPolicy execution, fired by your trigger record
 ```
+
+Reading these logs requires `logs:FilterLogEvents` on the function's log group -- a grant your starting identity never held. The attached `AdministratorAccess` supplies it, and your permissions boundary still permits it there. That same boundary is why raw admin verbs like `aws iam list-users` stay denied even now: it clamps every action outside the lab's scope, escalation or not. The flag read in the next step is the definitive proof of your new access.
 
 ## Capture the Flag
 
