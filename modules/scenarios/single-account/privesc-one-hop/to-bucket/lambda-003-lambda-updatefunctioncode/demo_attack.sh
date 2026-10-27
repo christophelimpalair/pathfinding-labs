@@ -225,9 +225,9 @@ def lambda_handler(event, context):
     which has s3:GetObject on the target bucket that the starting user cannot access.
     """
     s3 = boto3.client('s3')
-    # Bucket name is injected via the TARGET_BUCKET environment variable set
-    # by lambda:UpdateFunctionConfiguration, or falls back to the event payload.
-    bucket = os.environ.get('TARGET_BUCKET', event.get('bucket', ''))
+    # The target bucket name is baked into the handler at write time
+    # (unquoted heredoc), so the invocation payload can be empty.
+    bucket = os.environ.get('TARGET_BUCKET', '${TARGET_BUCKET}')
 
     try:
         obj = s3.get_object(Bucket=bucket, Key='flag.txt')

