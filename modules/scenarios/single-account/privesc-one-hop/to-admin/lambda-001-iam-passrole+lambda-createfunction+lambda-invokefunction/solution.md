@@ -132,20 +132,14 @@ export AWS_SESSION_TOKEN=$(echo "$BODY"     | jq -r '.AWS_SESSION_TOKEN')
 
 ## Verification
 
-Confirm you are now operating as the admin role:
+Confirm the exported session really is the admin role:
 
 ```bash
 aws sts get-caller-identity --query 'Arn' --output text
 # arn:aws:sts::123456789012:assumed-role/pl-prod-lambda-001-to-admin-target-role/pl-lambda-001-credential-extractor
-
-aws iam list-users --max-items 3 --output table
-# +----+------+-----+
-# |         Users   |
-# +----+------+-----+
-# ...
 ```
 
-If `list-users` succeeds, you have administrator access. The escalation is complete.
+That assumed-role ARN is the escalation: your shell now speaks as the admin role. The role's permissions boundary still contains what that session may touch -- an `aws iam list-users` attempt is denied, exactly as it was for the starting user -- and the one privilege it leaves open is the flag parameter read, which is the next step.
 
 ## Capture the Flag
 
