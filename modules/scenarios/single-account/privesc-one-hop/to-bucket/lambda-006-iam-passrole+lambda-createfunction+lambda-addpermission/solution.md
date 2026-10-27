@@ -111,8 +111,11 @@ aws lambda add-permission \
   --function-name "pl-lambda-006-to-bucket-escalation" \
   --statement-id "AllowSelfInvoke" \
   --action "lambda:InvokeFunction" \
-  --principal "$USER_ARN"
+  --principal "$USER_ARN" \
+  --source-arn "$USER_ARN"
 ```
+
+Hosted environments constrain grant recipients to the starting user, so the principal is your own ARN rather than the account.
 
 Verify the policy was applied:
 
