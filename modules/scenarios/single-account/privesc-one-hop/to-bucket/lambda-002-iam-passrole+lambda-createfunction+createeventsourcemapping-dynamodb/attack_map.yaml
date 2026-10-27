@@ -65,8 +65,8 @@ attackMap:
         The target S3 bucket containing flag.txt — the CTF flag for this scenario.
         The bucket is not directly accessible to the starting user. The Lambda execution
         role reads the flag object and writes the value to the exfil DynamoDB table,
-        from which the attacker retrieves it. Retrieve the flag with:
-        aws s3 cp s3://pl-prod-lambda-002-to-bucket-{account_id}-{suffix}/flag.txt -
+        from which the attacker retrieves it (the bucket name is your target_bucket_name
+        output). Retrieve the flag with: aws s3 cp s3://${TARGET_BUCKET}/flag.txt -
 
   edges:
     - from: starting-principal
