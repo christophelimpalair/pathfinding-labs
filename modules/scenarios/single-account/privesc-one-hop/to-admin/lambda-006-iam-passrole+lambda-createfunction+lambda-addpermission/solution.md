@@ -118,9 +118,11 @@ aws lambda add-permission \
   --function-name "pl-lambda-006-malicious-function" \
   --statement-id "AllowUserInvoke" \
   --action "lambda:InvokeFunction" \
-  --principal "$ACCOUNT_ID" \
+  --principal "$USER_ARN" \
   --source-arn "$USER_ARN"
 ```
+
+Hosted environments constrain grant recipients to the starting user, so the principal is your own ARN rather than the account.
 
 You can verify the policy was added:
 
